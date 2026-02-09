@@ -127,7 +127,7 @@ $bookings = $authClient->getUserMatches(
 $authClient->cancelBooking($tokens->accessToken, 'match-id');
 
 // Cancel with a specific reason code
-$authClient->cancelBooking($tokens->accessToken, 'match-id', 'PERSONAL');
+$authClient->cancelBooking($tokens->accessToken, 'match-id', 'CANCELED_BY_OWNER');
 ```
 
 ## Testing

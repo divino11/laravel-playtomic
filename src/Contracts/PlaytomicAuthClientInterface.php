@@ -49,5 +49,5 @@ interface PlaytomicAuthClientInterface
     /**
      * Cancel a booking (match) on Playtomic.
      */
-    public function cancelBooking(string $accessToken, string $matchId, string $reasonCode = 'PERSONAL'): void;
+    public function cancelBooking(string $accessToken, string $matchId, string $reasonCode = 'CANCELED_BY_OWNER'): void;
 }
