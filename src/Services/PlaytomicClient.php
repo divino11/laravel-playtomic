@@ -335,6 +335,7 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
         $response = Http::timeout($this->timeout)
             ->withHeaders($this->buildHeaders())
             ->withToken($accessToken)
+            ->asJson()
             ->post("{$this->baseUrl}/matches/{$matchId}/cancellation", [
                 'cancellation_reason_code' => $reasonCode,
             ]);
@@ -351,8 +352,9 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
         }
 
         if ($response->failed()) {
+            $errorMessage = $response->json('error') ?? $response->body();
             throw new PlaytomicApiException(
-                "Booking cancellation failed: {$response->status()} {$response->body()}"
+                "Booking cancellation failed ({$response->status()}): {$errorMessage}"
             );
         }
     }
