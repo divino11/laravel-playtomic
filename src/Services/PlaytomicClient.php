@@ -330,17 +330,20 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
     /**
      * Cancel a booking (match) on Playtomic.
      */
-    public function cancelBooking(string $accessToken, string $matchId): void
+    public function cancelBooking(string $accessToken, string $matchId, string $reasonCode = 'PERSONAL'): void
     {
         $response = Http::timeout($this->timeout)
             ->withHeaders($this->buildHeaders())
             ->withToken($accessToken)
-            ->delete("{$this->baseUrl}/matches/{$matchId}");
+            ->post("{$this->baseUrl}/matches/{$matchId}/cancellation", [
+                'cancellation_reason_code' => $reasonCode,
+            ]);
 
         Log::info('Playtomic cancel booking response', [
             'status' => $response->status(),
             'body' => $response->body(),
             'match_id' => $matchId,
+            'reason_code' => $reasonCode,
         ]);
 
         if ($response->status() === 401) {

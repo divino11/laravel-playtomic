@@ -123,8 +123,11 @@ $bookings = $authClient->getUserMatches(
 ### Cancel a Booking
 
 ```php
+// Cancel with default reason ('PERSONAL')
 $authClient->cancelBooking($tokens->accessToken, 'match-id');
-// Throws PlaytomicApiException if the booking cannot be cancelled
+
+// Cancel with a specific reason code
+$authClient->cancelBooking($tokens->accessToken, 'match-id', 'PERSONAL');
 ```
 
 ## Testing
