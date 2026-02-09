@@ -420,10 +420,11 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
     private function buildHeaders(): array
     {
         return [
-            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent' => 'Android 11',
             'Accept' => 'application/json',
+            'Accept-Language' => 'en',
             'Content-Type' => 'application/json',
-            'X-Requested-With' => 'com.playtomic.web',
+            'X-Requested-With' => 'com.playtomic.app 6.59.0',
         ];
     }
 }
