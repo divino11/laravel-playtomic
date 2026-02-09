@@ -265,7 +265,8 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
 
         // After Stripe payment, Playtomic may auto-confirm the booking.
         // The confirmation call then returns 422 PAYMENT_INTENT_STATUS_INVALID
-        // because the intent is already completed. Treat this as success.
+        // because the intent is already completed. Treat this as success
+        // but we must resolve the real match_id (not the payment intent ID).
         if ($response->status() === 422) {
             $body = $response->json();
 
@@ -274,8 +275,29 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
                     'payment_intent_id' => $paymentIntentId,
                 ]);
 
+                // Try to extract match_id from the 422 response body first
+                $matchId = $this->extractMatchId($body);
+
+                // If not found, fetch the payment intent to get the real match_id
+                if (!$matchId) {
+                    try {
+                        $intentData = $this->getPaymentIntent($accessToken, $paymentIntentId);
+                        $matchId = $this->extractMatchId($intentData);
+                    } catch (\Throwable $e) {
+                        Log::warning('Failed to fetch payment intent for match_id resolution', [
+                            'payment_intent_id' => $paymentIntentId,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                Log::info('Resolved match_id for auto-confirmed booking', [
+                    'payment_intent_id' => $paymentIntentId,
+                    'match_id' => $matchId ?? 'unresolved',
+                ]);
+
                 return new BookingResultDto(
-                    matchId: $paymentIntentId,
+                    matchId: $matchId ?? $paymentIntentId,
                     status: 'CONFIRMED',
                     courtName: '',
                     startDate: '',
@@ -293,6 +315,31 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
         }
 
         return BookingResultDto::fromApiResponse($response->json());
+    }
+
+    /**
+     * Fetch a payment intent's current data from Playtomic.
+     *
+     * @return array<string, mixed>
+     */
+    public function getPaymentIntent(string $accessToken, string $paymentIntentId): array
+    {
+        $response = Http::timeout($this->timeout)
+            ->withHeaders($this->buildHeaders())
+            ->withToken($accessToken)
+            ->get("{$this->baseUrl}/payment_intents/{$paymentIntentId}");
+
+        if ($response->status() === 401) {
+            throw new PlaytomicAuthException('Playtomic session expired. Please re-link your account.');
+        }
+
+        if ($response->failed()) {
+            throw new PlaytomicApiException(
+                "Failed to fetch payment intent: {$response->status()} {$response->body()}"
+            );
+        }
+
+        return $response->json() ?? [];
     }
 
     /**
@@ -414,6 +461,52 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
 
             return $map;
         });
+    }
+
+    /**
+     * Deep-search an array structure for a match_id field.
+     * Looks in common locations: cart.item.cart_item_data.match_id, match_id at root, etc.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function extractMatchId(array $data): ?string
+    {
+        // Direct field
+        if (!empty($data['match_id']) && is_string($data['match_id'])) {
+            return $data['match_id'];
+        }
+
+        // Nested in cart.item.cart_item_data.match_id (payment intent confirmation response)
+        $cartMatchId = $data['cart']['item']['cart_item_data']['match_id'] ?? null;
+        if (is_string($cartMatchId) && $cartMatchId !== '') {
+            return $cartMatchId;
+        }
+
+        // Search recursively through the array for any match_id
+        return $this->deepSearchMatchId($data);
+    }
+
+    /**
+     * Recursively search for a match_id value in a nested array.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function deepSearchMatchId(array $data): ?string
+    {
+        foreach ($data as $key => $value) {
+            if ($key === 'match_id' && is_string($value) && $value !== '') {
+                return $value;
+            }
+
+            if (is_array($value)) {
+                $found = $this->deepSearchMatchId($value);
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

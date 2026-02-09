@@ -40,6 +40,13 @@ interface PlaytomicAuthClientInterface
     public function confirmPaymentIntent(string $accessToken, string $paymentIntentId): BookingResultDto;
 
     /**
+     * Fetch a payment intent's current data from Playtomic.
+     *
+     * @return array<string, mixed>
+     */
+    public function getPaymentIntent(string $accessToken, string $paymentIntentId): array;
+
+    /**
      * Fetch the user's matches (bookings) from Playtomic.
      *
      * @return UserBookingDto[]
