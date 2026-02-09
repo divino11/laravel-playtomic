@@ -45,4 +45,9 @@ interface PlaytomicAuthClientInterface
      * @return UserBookingDto[]
      */
     public function getUserMatches(string $accessToken, string $userId, int $size = 50, string $sort = 'start_date,DESC'): array;
+
+    /**
+     * Cancel a booking (match) on Playtomic.
+     */
+    public function cancelBooking(string $accessToken, string $matchId): void;
 }

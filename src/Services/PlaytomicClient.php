@@ -328,6 +328,33 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
     }
 
     /**
+     * Cancel a booking (match) on Playtomic.
+     */
+    public function cancelBooking(string $accessToken, string $matchId): void
+    {
+        $response = Http::timeout($this->timeout)
+            ->withHeaders($this->buildHeaders())
+            ->withToken($accessToken)
+            ->delete("{$this->baseUrl}/matches/{$matchId}");
+
+        Log::info('Playtomic cancel booking response', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+            'match_id' => $matchId,
+        ]);
+
+        if ($response->status() === 401) {
+            throw new PlaytomicAuthException('Playtomic session expired. Please re-link your account.');
+        }
+
+        if ($response->failed()) {
+            throw new PlaytomicApiException(
+                "Booking cancellation failed: {$response->status()} {$response->body()}"
+            );
+        }
+    }
+
+    /**
      * @return array{latitude: float, longitude: float}
      */
     public function geocode(string $location): array

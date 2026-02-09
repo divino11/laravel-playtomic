@@ -58,13 +58,13 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
             }
 
             $venues = array_map(
-                fn (array $venue) => VenueDto::fromApiResponse($venue),
+                fn(array $venue) => VenueDto::fromApiResponse($venue),
                 $response->json()
             );
 
             return array_values(array_filter(
                 $venues,
-                fn (VenueDto $venue) => $venue->isActive,
+                fn(VenueDto $venue) => $venue->isActive,
             ));
         });
     }
@@ -322,9 +322,36 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
         }
 
         return array_map(
-            fn (array $match) => UserBookingDto::fromApiResponse($match),
+            fn(array $match) => UserBookingDto::fromApiResponse($match),
             $response->json() ?? [],
         );
+    }
+
+    /**
+     * Cancel a booking (match) on Playtomic.
+     */
+    public function cancelBooking(string $accessToken, string $matchId): void
+    {
+        $response = Http::timeout($this->timeout)
+            ->withHeaders($this->buildHeaders())
+            ->withToken($accessToken)
+            ->delete("{$this->baseUrl}/matches/{$matchId}");
+
+        Log::info('Playtomic cancel booking response', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+            'match_id' => $matchId,
+        ]);
+
+        if ($response->status() === 401) {
+            throw new PlaytomicAuthException('Playtomic session expired. Please re-link your account.');
+        }
+
+        if ($response->failed()) {
+            throw new PlaytomicApiException(
+                "Booking cancellation failed: {$response->status()} {$response->body()}"
+            );
+        }
     }
 
     /**
@@ -332,7 +359,7 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
      */
     public function geocode(string $location): array
     {
-        $cacheKey = 'playtomic:geocode:'.md5(strtolower(trim($location)));
+        $cacheKey = 'playtomic:geocode:' . md5(strtolower(trim($location)));
 
         return Cache::remember($cacheKey, now()->addHours(24), function () use ($location) {
             $response = Http::timeout($this->timeout)

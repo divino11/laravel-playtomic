@@ -120,6 +120,13 @@ $bookings = $authClient->getUserMatches(
 // Each booking is a UserBookingDto with: matchId, startDate, endDate, status, resourceName, price, tenantName, tenantCity
 ```
 
+### Cancel a Booking
+
+```php
+$authClient->cancelBooking($tokens->accessToken, 'match-id');
+// Throws PlaytomicApiException if the booking cannot be cancelled
+```
+
 ## Testing
 
 ```bash
