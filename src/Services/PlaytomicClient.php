@@ -10,6 +10,7 @@ use Divino11\Playtomic\DataTransferObjects\AuthTokenDto;
 use Divino11\Playtomic\DataTransferObjects\BookingRequestDto;
 use Divino11\Playtomic\DataTransferObjects\BookingResultDto;
 use Divino11\Playtomic\DataTransferObjects\CourtSlotDto;
+use Divino11\Playtomic\DataTransferObjects\MultiBookingResultDto;
 use Divino11\Playtomic\DataTransferObjects\PaymentIntentResponseDto;
 use Divino11\Playtomic\DataTransferObjects\UserBookingDto;
 use Divino11\Playtomic\DataTransferObjects\VenueDto;
@@ -27,6 +28,24 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
     private int $timeout;
 
     private int $defaultRadius;
+
+    /**
+     * Payment methods in order of preference (pay-at-venue first).
+     *
+     * @var array<int, string>
+     */
+    private const PREFERRED_PAYMENT_METHODS = [
+        'CASH',
+        'MERCHANT_WALLET',
+        'OFFER',
+        'DIRECT',
+        'CREDIT_CARD',
+        'IDEAL',
+        'BANCONTACT',
+        'PAYTRAIL',
+        'SWISH',
+        'QUICK_PAY',
+    ];
 
     public function __construct()
     {
@@ -407,6 +426,125 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
     }
 
     /**
+     * Book multiple courts sequentially.
+     *
+     * Each court gets its own payment intent. The payment method selected
+     * for the first court is reused for all subsequent courts.
+     *
+     * @param  BookingRequestDto[]  $requests
+     */
+    public function bookMultipleCourts(
+        string $accessToken,
+        array $requests,
+        string $userId,
+        bool $rollbackOnFailure = true,
+    ): MultiBookingResultDto {
+        if ($requests === []) {
+            return new MultiBookingResultDto(
+                successful: [],
+                failed: [],
+                allSucceeded: true,
+            );
+        }
+
+        /** @var BookingResultDto[] $successful */
+        $successful = [];
+        /** @var BookingRequestDto[] $failed */
+        $failed = [];
+        $selectedMethod = null;
+
+        foreach ($requests as $request) {
+            try {
+                $intent = $this->createPaymentIntent($accessToken, $request, $userId);
+
+                // Select the payment method once and reuse for all bookings
+                if ($selectedMethod === null) {
+                    $selectedMethod = $this->choosePaymentMethod($intent->availablePaymentMethods);
+
+                    if ($selectedMethod === '') {
+                        throw new PlaytomicApiException('No supported payment method available for this booking.');
+                    }
+                }
+
+                Log::info('Multi-court booking: processing court', [
+                    'resource_id' => $request->resourceId,
+                    'payment_method' => $selectedMethod,
+                    'payment_intent_id' => $intent->paymentIntentId,
+                    'court_index' => count($successful) + 1,
+                    'total_courts' => count($requests),
+                ]);
+
+                $updateResponse = $this->updatePaymentIntent(
+                    $accessToken,
+                    $intent->paymentIntentId,
+                    $selectedMethod,
+                );
+
+                // If Stripe payment is required, we cannot auto-confirm
+                $nextAction = $updateResponse['next_payment_action'] ?? null;
+
+                if ($nextAction === 'OPEN_STRIPE') {
+                    throw new PlaytomicApiException(
+                        'Stripe payment required. Multi-court booking only supports auto-confirm payment methods (CASH, WALLET, etc.).'
+                    );
+                }
+
+                $result = $this->confirmPaymentIntent($accessToken, $intent->paymentIntentId);
+                $successful[] = $result;
+
+                Log::info('Multi-court booking: court booked successfully', [
+                    'resource_id' => $request->resourceId,
+                    'match_id' => $result->matchId,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Multi-court booking: court booking failed', [
+                    'resource_id' => $request->resourceId,
+                    'error' => $e->getMessage(),
+                    'successful_so_far' => count($successful),
+                ]);
+
+                $failed[] = $request;
+
+                // Add all remaining requests to failed list
+                $currentIndex = array_search($request, $requests, true);
+
+                if ($currentIndex !== false) {
+                    $remaining = array_slice($requests, $currentIndex + 1);
+                    $failed = array_merge($failed, $remaining);
+                }
+
+                // Rollback successful bookings if requested
+                if ($rollbackOnFailure && $successful !== []) {
+                    Log::info('Multi-court booking: rolling back successful bookings', [
+                        'count' => count($successful),
+                    ]);
+
+                    foreach ($successful as $booking) {
+                        try {
+                            $this->cancelBooking($accessToken, $booking->matchId);
+                        } catch (\Throwable $cancelError) {
+                            Log::error('Multi-court booking: failed to cancel booking during rollback', [
+                                'match_id' => $booking->matchId,
+                                'error' => $cancelError->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    $successful = [];
+                }
+
+                break;
+            }
+        }
+
+        return new MultiBookingResultDto(
+            successful: $successful,
+            failed: $failed,
+            allSucceeded: $failed === [],
+        );
+    }
+
+    /**
      * @return array{latitude: float, longitude: float}
      */
     public function geocode(string $location): array
@@ -433,6 +571,33 @@ class PlaytomicClient implements PlaytomicAuthClientInterface, PlaytomicClientIn
                 'longitude' => (float) $result['lon'],
             ];
         });
+    }
+
+    /**
+     * Select the best available payment method from the preferred list.
+     *
+     * @param  array<int, string>  $available
+     */
+    private function choosePaymentMethod(array $available): string
+    {
+        foreach (self::PREFERRED_PAYMENT_METHODS as $preferred) {
+            foreach ($available as $method) {
+                if (strcasecmp($method, $preferred) === 0) {
+                    return $method;
+                }
+            }
+        }
+
+        $fallback = $available[0] ?? '';
+
+        if ($fallback !== '') {
+            Log::warning('Playtomic booking: using fallback payment method', [
+                'fallback' => $fallback,
+                'available' => $available,
+            ]);
+        }
+
+        return $fallback;
     }
 
     /**

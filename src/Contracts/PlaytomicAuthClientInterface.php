@@ -7,6 +7,7 @@ namespace Divino11\Playtomic\Contracts;
 use Divino11\Playtomic\DataTransferObjects\AuthTokenDto;
 use Divino11\Playtomic\DataTransferObjects\BookingRequestDto;
 use Divino11\Playtomic\DataTransferObjects\BookingResultDto;
+use Divino11\Playtomic\DataTransferObjects\MultiBookingResultDto;
 use Divino11\Playtomic\DataTransferObjects\PaymentIntentResponseDto;
 use Divino11\Playtomic\DataTransferObjects\UserBookingDto;
 
@@ -57,4 +58,20 @@ interface PlaytomicAuthClientInterface
      * Cancel a booking (match) on Playtomic.
      */
     public function cancelBooking(string $accessToken, string $matchId, string $reasonCode = 'CANCELED_BY_OWNER'): void;
+
+    /**
+     * Book multiple courts sequentially.
+     *
+     * Each court is booked via its own payment intent. If a booking fails
+     * and rollbackOnFailure is true, all previously successful bookings
+     * in this batch are cancelled.
+     *
+     * @param  BookingRequestDto[]  $requests
+     */
+    public function bookMultipleCourts(
+        string $accessToken,
+        array $requests,
+        string $userId,
+        bool $rollbackOnFailure = true,
+    ): MultiBookingResultDto;
 }

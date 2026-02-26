@@ -130,6 +130,37 @@ $authClient->cancelBooking($tokens->accessToken, 'match-id');
 $authClient->cancelBooking($tokens->accessToken, 'match-id', 'CANCELED_BY_OWNER');
 ```
 
+### Book Multiple Courts
+
+Book several courts at once with automatic rollback if any booking fails:
+
+```php
+use Divino11\Playtomic\Contracts\PlaytomicAuthClientInterface;
+use Divino11\Playtomic\DataTransferObjects\BookingRequestDto;
+
+$authClient = app(PlaytomicAuthClientInterface::class);
+$tokens = $authClient->login('user@example.com', 'password');
+
+$requests = [
+    new BookingRequestDto('tenant-uuid', 'court-1-uuid', '2026-02-10', '10:00', 90),
+    new BookingRequestDto('tenant-uuid', 'court-2-uuid', '2026-02-10', '10:00', 90),
+    new BookingRequestDto('tenant-uuid', 'court-3-uuid', '2026-02-10', '10:00', 90),
+];
+
+// Books each court sequentially, cancels all if one fails
+$result = $authClient->bookMultipleCourts(
+    $tokens->accessToken,
+    $requests,
+    $tokens->userId,
+    rollbackOnFailure: true, // set to false to keep successful bookings even if one fails
+);
+
+// $result is a MultiBookingResultDto
+$result->allSucceeded;  // bool
+$result->successful;    // BookingResultDto[]
+$result->failed;        // BookingRequestDto[]
+```
+
 ## Testing
 
 ```bash
